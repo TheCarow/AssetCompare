@@ -31,10 +31,11 @@ public class AssetCompareWindow : EditorWindow
     private Texture2D waveformB;
     private float playbackPosition = 0f;
 
-    private const string TempFolderName = "Temp";
-    private const string TempFolderParent = "Assets/AssetCompare";
-    private const string TempFolder = "Assets/AssetCompare/Temp";
     private const string AssetCompareTitle = "AssetCompare";
+    private const string TempFolderName = "Temp";
+    private string assetCompareEditorPath;
+    private string assetCompareTempPath;
+    private string tempFolder;
     private string tempAPath;
     private string tempBPath;
     
@@ -88,12 +89,31 @@ public class AssetCompareWindow : EditorWindow
         {
             return;
         }
+        
+        string[] guids = AssetDatabase.FindAssets("t:Script AssetCompareWindow");
+        if (guids.Length == 0)
+        {
+            Debug.LogError("Could not find AssetCompareWindow script in project.");
+            return;
+        }
+        
+        string scriptPath = AssetDatabase.GUIDToAssetPath(guids[0]);
+        
+        assetCompareEditorPath = Path.GetDirectoryName(scriptPath);
+
+        if (string.IsNullOrEmpty(assetCompareEditorPath))
+        {
+            Debug.LogError("assetCompareEditorPath not found.");
+            return;
+        }
+        
+        assetCompareTempPath = Path.Combine(assetCompareEditorPath, TempFolderName);
 
         CleanupPreviewFiles();
 
-        if (!AssetDatabase.IsValidFolder(TempFolder))
+        if (!AssetDatabase.IsValidFolder(assetCompareTempPath))
         {
-            Directory.CreateDirectory(TempFolder);
+            Directory.CreateDirectory(assetCompareTempPath);
             AssetDatabase.Refresh();
         }
         
@@ -491,14 +511,14 @@ public class AssetCompareWindow : EditorWindow
             return;
         }
 
-        if (!AssetDatabase.IsValidFolder(TempFolder))
+        if (!AssetDatabase.IsValidFolder(assetCompareTempPath))
         {
-            AssetDatabase.CreateFolder(TempFolderParent, TempFolderName);
+            AssetDatabase.CreateFolder(assetCompareEditorPath, TempFolderName);
         }
 
         var ext = Path.GetExtension(srcPath);
-        tempAPath = TempFolder + "/A" + ext;
-        tempBPath = TempFolder + "/B" + ext;
+        tempAPath = assetCompareTempPath + "/A" + ext;
+        tempBPath = assetCompareTempPath + "/B" + ext;
 
         if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(tempAPath) != null)
         {
@@ -999,9 +1019,9 @@ public class AssetCompareWindow : EditorWindow
             AssetDatabase.DeleteAsset(tempBPath);
         }
 
-        if (AssetDatabase.IsValidFolder(TempFolder))
+        if (AssetDatabase.IsValidFolder(assetCompareTempPath))
         {
-            AssetDatabase.DeleteAsset(TempFolder);
+            AssetDatabase.DeleteAsset(assetCompareTempPath);
         }
 
         tempAPath = null;
