@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -48,8 +49,9 @@ public class AssetCompareWindow : EditorWindow
     private Button swapAudioButton;
     private Label currentAudioLabel;
 
-    private HelpBox statBoxA;
-    private HelpBox statBoxB;
+    private Label sourceStatBox;
+    private Label statBoxA;
+    private Label statBoxB;
 
     private enum AssetType
     {
@@ -200,7 +202,20 @@ public class AssetCompareWindow : EditorWindow
         };
         sourceField.RegisterValueChangedCallback(OnSourceFieldChanged);
         leftColumn.Add(sourceField);
-
+        
+        sourceStatBox = new Label("\nNo Data")
+        {
+            style =
+            {
+                width = 130,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = 4,
+                marginLeft = 4,
+                display = DisplayStyle.None,
+            }
+        };
+        leftColumn.Add(sourceStatBox);
+        
         // Audio controls
         audioControlsContainer = new VisualElement
         {
@@ -227,7 +242,7 @@ public class AssetCompareWindow : EditorWindow
             style = { width = 100, marginRight = 8 }
         };
 
-        currentAudioLabel = new Label("Playing: A")
+        currentAudioLabel = new Label("Selected: A")
         {
             style = { unityTextAlign = TextAnchor.MiddleLeft }
         };
@@ -255,15 +270,35 @@ public class AssetCompareWindow : EditorWindow
                 width = 300,
                 marginRight = 8,
                 flexDirection = FlexDirection.Column,
-                paddingLeft = 6,
-                paddingRight = 6,
+
                 paddingTop = 6,
                 paddingBottom = 6
             }
         };
-        importerAHeader.Add(new Label("Settings A"));
         
-        statBoxA = new HelpBox("No Data", HelpBoxMessageType.Info);
+        importerAHeader.Add(new Label("Asset A")
+        {
+            style =
+            {
+                width = 130,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = 4,
+                marginLeft = 4,
+                unityFontStyleAndWeight = FontStyle.Bold,
+            }
+        });
+        
+        statBoxA = new Label("\nNo Data")
+        {
+            style =
+            {
+                width = 130,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = 4,
+                marginLeft = 4,
+                display = DisplayStyle.None,
+            }
+        };
         importerAHeader.Add(statBoxA);
 
         var importerBHeader = new VisualElement
@@ -274,13 +309,33 @@ public class AssetCompareWindow : EditorWindow
                 flexDirection = FlexDirection.Column,
                 paddingLeft = 6,
                 paddingRight = 6,
-                paddingTop = 6,
                 paddingBottom = 6
             }
         };
-        importerBHeader.Add(new Label("Settings B"));
         
-        statBoxB = new HelpBox("No Data", HelpBoxMessageType.Info);
+        importerBHeader.Add(new Label("Asset B")
+        {
+            style =
+            {
+                width = 130,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = 4,
+                marginLeft = 4,
+                unityFontStyleAndWeight = FontStyle.Bold,
+            }
+        });
+        
+        statBoxB = new Label("\nNo Data")
+        {
+            style =
+            {
+                width = 130,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = 4,
+                marginLeft = 4,
+                display = DisplayStyle.None,
+            }
+        };
         importerBHeader.Add(statBoxB);
 
         headersRow.Add(importerAHeader);
@@ -432,6 +487,10 @@ public class AssetCompareWindow : EditorWindow
             audioControlsContainer.style.display = DisplayStyle.None;
             UnregisterTexturePreviewEvents();
             
+            sourceStatBox.style.display = DisplayStyle.None;
+            statBoxA.style.display = DisplayStyle.None;
+            statBoxB.style.display = DisplayStyle.None;
+            
             return;
         }
 
@@ -451,6 +510,9 @@ public class AssetCompareWindow : EditorWindow
             audioControlsContainer.style.display = DisplayStyle.Flex;
             StopAudio();
             UnregisterTexturePreviewEvents();
+            
+            statBoxA.style.display = DisplayStyle.None;
+            statBoxB.style.display = DisplayStyle.None;
         }
         else
         {
@@ -461,8 +523,12 @@ public class AssetCompareWindow : EditorWindow
             UnregisterTexturePreviewEvents();
             EditorUtility.DisplayDialog("Unsupported Asset",
                 "Only Texture2D and AudioClip assets are supported for comparison.", "OK");
+            
+            statBoxA.style.display = DisplayStyle.None;
+            statBoxB.style.display = DisplayStyle.None;
         }
         
+        UpdateSourceStats();
         GeneratePreview();
     }
 
@@ -569,8 +635,6 @@ public class AssetCompareWindow : EditorWindow
         {
             waveformB = GenerateWaveform(previewAudioB, 512, 128);
         }
-
-        ResetStats();
 
         previewContainer?.MarkDirtyRepaint();
     }
@@ -706,7 +770,7 @@ public class AssetCompareWindow : EditorWindow
 
         if (currentAudioLabel != null)
         {
-            currentAudioLabel.text = "Playing: " + (isPlayingA ? "A" : "B");
+            currentAudioLabel.text = "Selected: " + (isPlayingA ? "A" : "B");
         }
     }
 
@@ -960,8 +1024,10 @@ public class AssetCompareWindow : EditorWindow
         previewContainer?.MarkDirtyRepaint();
     }
 
-    void UpdateTextureStats(Texture2D targetTexture, HelpBox targetHelpBox)
+    void UpdateTextureStats(Texture2D targetTexture, Label targetLabel)
     {
+        var sb = new StringBuilder();
+
         var textureUtilType = typeof(Editor).Assembly.GetType("UnityEditor.TextureUtil");
 
         MethodInfo getStorageMemorySizeLongMethod = textureUtilType?.GetMethod(
@@ -970,20 +1036,35 @@ public class AssetCompareWindow : EditorWindow
         );
         var result = (long)getStorageMemorySizeLongMethod.Invoke(null, new object[] { targetTexture });
         var formattedBytes = EditorUtility.FormatBytes(result);
-
-        targetHelpBox.text = formattedBytes;
-        if (IsNPOT(previewA))
-        {
-            targetHelpBox.text += "\nNPOT";
-        }
         
-        targetHelpBox.style.display = DisplayStyle.Flex;
-    }
+        sb.AppendLine();
+        sb.AppendLine($"Imported Size: {formattedBytes}");
 
-    void ResetStats()
+        targetLabel.text = sb.ToString();
+        targetLabel.style.display = DisplayStyle.Flex;
+    }
+    
+    void UpdateSourceStats()
     {
-        statBoxA.style.display = DisplayStyle.None;
-        statBoxB.style.display = DisplayStyle.None;
+        var sb = new StringBuilder();
+        
+        var assetPath = AssetDatabase.GetAssetPath(sourceAsset);
+
+        var absolutePath = Path.Combine(Application.dataPath.Replace("Assets", ""), assetPath);
+        var originalFileInfo = new FileInfo(absolutePath);
+        var originalFileSizeBytes = originalFileInfo.Length;
+
+        sb.AppendLine();
+        sb.AppendLine($"Source Type: {originalFileInfo.Extension.Substring(1).ToUpper()}");
+        sb.AppendLine($"Source Size: {EditorUtility.FormatBytes(originalFileSizeBytes)}");
+        
+        if (IsNPOT(sourceTexture))
+        {
+            sb.AppendLine("\nNon-power-of-two (NPOT) textures are incompatible with some compression formats.");
+        }
+
+        sourceStatBox.text = sb.ToString();
+        sourceStatBox.style.display = DisplayStyle.Flex;
     }
     
     bool IsNPOT(Texture2D texture)
