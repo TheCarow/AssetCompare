@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -5,6 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEditor.UIElements;
+using Object = UnityEngine.Object;
 
 public class AssetCompareWindow : EditorWindow
 {
@@ -20,6 +22,8 @@ public class AssetCompareWindow : EditorWindow
     private const float MinZoom = 0.1f;
     private const float MaxZoom = 5.0f;
     
+    private readonly Color AudioPreviewBGColor = new Color(0.192f, 0.192f, 0.192f, 1f);
+    private readonly Color WaveColor = new Color(1f, 0.549f, 0f, 1f);
     private AudioClip sourceAudioClip;
     private AudioClip previewAudioA;
     private AudioClip previewAudioB;
@@ -52,6 +56,10 @@ public class AssetCompareWindow : EditorWindow
     private Label sourceStatBox;
     private Label statBoxA;
     private Label statBoxB;
+    
+    private const int WaveformWidth = 512;
+    private const int WaveformHeight = 256;
+    private const int PreviewErrorLabelWidth = 600;
 
     private enum AssetType
     {
@@ -184,7 +192,7 @@ public class AssetCompareWindow : EditorWindow
         };
 
         // Left column for all settings
-        var leftColumn = new VisualElement
+        var leftPanel = new VisualElement
         {
             style =
             {
@@ -201,9 +209,9 @@ public class AssetCompareWindow : EditorWindow
             label = "Source Asset",
         };
         sourceField.RegisterValueChangedCallback(OnSourceFieldChanged);
-        leftColumn.Add(sourceField);
+        leftPanel.Add(sourceField);
         
-        sourceStatBox = new Label("\nNo Data")
+        sourceStatBox = new Label("No Data")
         {
             style =
             {
@@ -214,7 +222,7 @@ public class AssetCompareWindow : EditorWindow
                 display = DisplayStyle.None,
             }
         };
-        leftColumn.Add(sourceStatBox);
+        leftPanel.Add(sourceStatBox);
         
         // Audio controls
         audioControlsContainer = new VisualElement
@@ -233,13 +241,20 @@ public class AssetCompareWindow : EditorWindow
         playStopButton = new Button(TogglePlayStop)
         {
             text = "Play",
-            style = { width = 80, marginRight = 8 }
+            style =
+            {
+                width = 80, 
+                marginRight = 8
+            }
         };
 
         swapAudioButton = new Button(SwapAudioChannel)
         {
             text = "Swap to B",
-            style = { width = 100, marginRight = 8 }
+            style = { 
+                width = 100, 
+                marginRight = 8 
+            }
         };
 
         currentAudioLabel = new Label("Selected: A")
@@ -250,7 +265,7 @@ public class AssetCompareWindow : EditorWindow
         audioControlsContainer.Add(playStopButton);
         audioControlsContainer.Add(swapAudioButton);
         audioControlsContainer.Add(currentAudioLabel);
-        leftColumn.Add(audioControlsContainer);
+        leftPanel.Add(audioControlsContainer);
 
         // Headers
         var headersRow = new VisualElement
@@ -263,84 +278,88 @@ public class AssetCompareWindow : EditorWindow
             }
         };
 
-        var importerAHeader = new VisualElement
+        StyleLength importerContainerWidth = 300;
+        StyleLength importerContainerPadding = 6;
+        
+        StyleLength importerOverviewMargin = 4;
+        StyleLength importerOverviewWidth = 130;
+
+        var importerAOverview = new VisualElement
         {
             style =
             {
-                width = 300,
-                marginRight = 8,
+                width = importerContainerWidth,
                 flexDirection = FlexDirection.Column,
-
-                paddingTop = 6,
-                paddingBottom = 6
+                paddingRight = importerContainerPadding,
+                paddingBottom = importerContainerPadding
             }
         };
         
-        importerAHeader.Add(new Label("Asset A")
+        importerAOverview.Add(new Label("Asset A")
         {
             style =
             {
-                width = 130,
+                width = importerOverviewWidth,
                 unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = 4,
-                marginLeft = 4,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
                 unityFontStyleAndWeight = FontStyle.Bold,
             }
         });
         
-        statBoxA = new Label("\nNo Data")
+        statBoxA = new Label("No Data")
         {
             style =
             {
-                width = 130,
+                width = importerOverviewWidth,
                 unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = 4,
-                marginLeft = 4,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
                 display = DisplayStyle.None,
             }
         };
-        importerAHeader.Add(statBoxA);
+        importerAOverview.Add(statBoxA);
 
-        var importerBHeader = new VisualElement
+        var importerBOverview = new VisualElement
         {
             style =
             {
-                width = 300,
+                width = importerContainerWidth,
                 flexDirection = FlexDirection.Column,
-                paddingLeft = 6,
-                paddingRight = 6,
-                paddingBottom = 6
+                paddingLeft = importerContainerPadding,
+                paddingRight = importerContainerPadding,
+                paddingBottom = importerContainerPadding
             }
         };
         
-        importerBHeader.Add(new Label("Asset B")
+        importerBOverview.Add(new Label("Asset B")
         {
             style =
             {
-                width = 130,
+                width = importerOverviewWidth,
                 unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = 4,
-                marginLeft = 4,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
                 unityFontStyleAndWeight = FontStyle.Bold,
             }
         });
         
-        statBoxB = new Label("\nNo Data")
+        statBoxB = new Label("No Data")
         {
             style =
             {
-                width = 130,
+                width = importerOverviewWidth,
                 unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = 4,
-                marginLeft = 4,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
                 display = DisplayStyle.None,
             }
         };
-        importerBHeader.Add(statBoxB);
+        importerBOverview.Add(statBoxB);
 
-        headersRow.Add(importerAHeader);
-        headersRow.Add(importerBHeader);
-        leftColumn.Add(headersRow);
+        headersRow.Add(importerAOverview);
+        headersRow.Add(importerBOverview);
+        leftPanel.Add(headersRow);
 
         // Importer Scroll
         var importersScroll = new ScrollView(ScrollViewMode.Vertical)
@@ -367,7 +386,7 @@ public class AssetCompareWindow : EditorWindow
         {
             style =
             {
-                width = 300,
+                width = importerContainerWidth,
                 marginRight = 8,
                 flexShrink = 0
             }
@@ -377,7 +396,7 @@ public class AssetCompareWindow : EditorWindow
         {
             style =
             {
-                width = 300,
+                width = importerContainerWidth,
                 flexShrink = 0
             }
         };
@@ -386,9 +405,9 @@ public class AssetCompareWindow : EditorWindow
         importersRow.Add(importerBContainer);
 
         importersScroll.Add(importersRow);
-        leftColumn.Add(importersScroll);
+        leftPanel.Add(importersScroll);
 
-        mainRow.Add(leftColumn);
+        mainRow.Add(leftPanel);
 
         // Preview Panel
         var previewPanel = new VisualElement { style = { flexGrow = 1 } };
@@ -419,7 +438,15 @@ public class AssetCompareWindow : EditorWindow
             {
                 imp.SaveAndReimport();
                 RefreshPreviews();
-                UpdateTextureStats(previewA, statBoxA);
+                
+                if (sourceTexture != null)
+                {
+                    UpdateTextureStats(previewA, statBoxA);
+                }
+                else
+                {
+                    UpdateAudioStats(importerEditorA, statBoxA);
+                }
             }
         }
     }
@@ -440,7 +467,14 @@ public class AssetCompareWindow : EditorWindow
             {
                 imp.SaveAndReimport();
                 RefreshPreviews();
-                UpdateTextureStats(previewB, statBoxB);
+                if (sourceTexture != null)
+                {
+                    UpdateTextureStats(previewB, statBoxB);
+                }
+                else
+                {
+                    UpdateAudioStats(importerEditorB, statBoxB);
+                }
             }
         }
     }
@@ -617,6 +651,7 @@ public class AssetCompareWindow : EditorWindow
         }
         previewAudioA = AssetDatabase.LoadAssetAtPath<AudioClip>(tempAPath);
         importerEditorA = CreateImporterEditor(previewAudioA);
+        UpdateAudioStats(importerEditorA, statBoxA);
         
         if (importerEditorB != null)
         {
@@ -625,15 +660,16 @@ public class AssetCompareWindow : EditorWindow
         }
         previewAudioB = AssetDatabase.LoadAssetAtPath<AudioClip>(tempBPath);
         importerEditorB = CreateImporterEditor(previewAudioB);
+        UpdateAudioStats(importerEditorB, statBoxB);
 
         if (previewAudioA != null)
         {
-            waveformA = GenerateWaveform(previewAudioA, 512, 128);
+            waveformA = GenerateWaveform(previewAudioA, WaveformWidth, WaveformHeight);
         }
 
         if (previewAudioB != null)
         {
-            waveformB = GenerateWaveform(previewAudioB, 512, 128);
+            waveformB = GenerateWaveform(previewAudioB, WaveformWidth, WaveformHeight);
         }
 
         previewContainer?.MarkDirtyRepaint();
@@ -780,13 +816,13 @@ public class AssetCompareWindow : EditorWindow
 
         if (currentAssetType == AssetType.None)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 20), "No asset selected.");
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 20), "No asset selected.");
             return;
         }
 
         if (currentAssetType == AssetType.Unsupported)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 40),
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 40),
                 "Unsupported asset type.\nOnly Texture2D and AudioClip assets are supported.");
             return;
         }
@@ -805,7 +841,7 @@ public class AssetCompareWindow : EditorWindow
     {
         if (previewA == null || previewB == null)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 20), "No texture preview available.");
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 20), "No texture preview available.");
             return;
         }
 
@@ -818,7 +854,7 @@ public class AssetCompareWindow : EditorWindow
 
         if (currentWaveform == null)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 20), "No audio preview available.");
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 20), "No audio preview available.");
             return;
         }
 
@@ -837,29 +873,29 @@ public class AssetCompareWindow : EditorWindow
             }
         }
 
-        GUI.Label(new Rect(rect.x + 8, rect.y + 8, 100, 20),
-            isPlayingA ? "A" : "B", EditorStyles.boldLabel);
+        var sampleLetter = isPlayingA ? "A" : "B";
+        GUI.Label(new Rect(rect.x + 8, rect.y + 8, 100, 20), sampleLetter, EditorStyles.boldLabel);
     }
 
     private void DrawSplitPreview(Rect rect, Texture2D leftTex, Texture2D rightTex, float handle)
     {
         var handleX = rect.x + rect.width * handle;
-        var h = rect.height;
-        var w = rect.width;
+        var height = rect.height;
+        var width = rect.width;
 
         Vector2 pivot = rect.center;
-        var scaledW = w * zoom;
-        var scaledH = h * zoom;
+        var scaledW = width * zoom;
+        var scaledH = height * zoom;
         var offsetX = pivot.x - (scaledW / 2f);
         var offsetY = pivot.y - (scaledH / 2f);
         Rect drawRect = new Rect(offsetX, offsetY, scaledW, scaledH);
 
-        var leftWidth = Mathf.Clamp(handleX - rect.x, 0, w);
-        var rightWidth = Mathf.Clamp(rect.x + w - handleX, 0, w);
+        var leftWidth = Mathf.Clamp(handleX - rect.x, 0, width);
+        var rightWidth = Mathf.Clamp(rect.x + width - handleX, 0, width);
 
         if (leftTex != null && leftWidth > 0f)
         {
-            GUI.BeginGroup(new Rect(rect.x, rect.y, leftWidth, h));
+            GUI.BeginGroup(new Rect(rect.x, rect.y, leftWidth, height));
             var local = new Rect(drawRect.x - rect.x, drawRect.y - rect.y, drawRect.width, drawRect.height);
             GUI.DrawTexture(local, leftTex, ScaleMode.ScaleToFit, true);
             GUI.EndGroup();
@@ -867,7 +903,7 @@ public class AssetCompareWindow : EditorWindow
 
         if (rightTex != null && rightWidth > 0f)
         {
-            GUI.BeginGroup(new Rect(handleX, rect.y, rightWidth, h));
+            GUI.BeginGroup(new Rect(handleX, rect.y, rightWidth, height));
             var local = new Rect(drawRect.x - handleX, drawRect.y - rect.y, drawRect.width, drawRect.height);
             GUI.DrawTexture(local, rightTex, ScaleMode.ScaleToFit, true);
             GUI.EndGroup();
@@ -876,11 +912,11 @@ public class AssetCompareWindow : EditorWindow
         Handles.BeginGUI();
         var previousHandleColor = Handles.color;
         Handles.color = Color.white;
-        Handles.DrawLine(new Vector3(handleX, rect.y), new Vector3(handleX, rect.y + h));
+        Handles.DrawLine(new Vector3(handleX, rect.y), new Vector3(handleX, rect.y + height));
         Handles.color = previousHandleColor;
         Handles.EndGUI();
 
-        EditorGUIUtility.AddCursorRect(new Rect(handleX - 6, rect.y, 12, h), MouseCursor.ResizeHorizontal);
+        EditorGUIUtility.AddCursorRect(new Rect(handleX - 6, rect.y, 12, height), MouseCursor.ResizeHorizontal);
     }
 
     private void OnPointerDownPreview(PointerDownEvent evt)
@@ -951,14 +987,12 @@ public class AssetCompareWindow : EditorWindow
 
         var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Point;
-        var bgColor = new Color(0.192f, 0.192f, 0.192f, 1f);
-        var waveColor = new Color(1f, 0.549f, 0f, 1f);
 
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                tex.SetPixel(x, y, bgColor);
+                tex.SetPixel(x, y, AudioPreviewBGColor);
             }
         }
 
@@ -999,7 +1033,7 @@ public class AssetCompareWindow : EditorWindow
 
             for (int y = minY; y <= maxY; y++)
             {
-                tex.SetPixel(x, y, waveColor);
+                tex.SetPixel(x, y, WaveColor);
             }
         }
 
@@ -1013,31 +1047,60 @@ public class AssetCompareWindow : EditorWindow
         {
             if (previewAudioA != null)
             {
-                waveformA = GenerateWaveform(previewAudioA, 1024, 256);
+                waveformA = GenerateWaveform(previewAudioA, WaveformWidth, WaveformHeight);
             }
 
             if (previewAudioB != null)
             {
-                waveformB = GenerateWaveform(previewAudioB, 1024, 256);
+                waveformB = GenerateWaveform(previewAudioB, WaveformWidth, WaveformHeight);
             }
         }
         previewContainer?.MarkDirtyRepaint();
+    }
+    
+    private static long GetStorageMemorySize(Texture2D texture) {
+        var unityEditorAssembly = typeof(Editor).Assembly;
+        var textureUtilClass = unityEditorAssembly.GetType("UnityEditor.TextureUtil");
+        var method = textureUtilClass.GetMethod(
+            "GetStorageMemorySizeLong",
+            BindingFlags.Static | BindingFlags.Public
+        );
+			
+        var size = (long)method.Invoke(
+            null,
+            new object[] {
+                texture
+            }
+        );
+			
+        return size;
     }
 
     void UpdateTextureStats(Texture2D targetTexture, Label targetLabel)
     {
         var sb = new StringBuilder();
-
-        var textureUtilType = typeof(Editor).Assembly.GetType("UnityEditor.TextureUtil");
-
-        MethodInfo getStorageMemorySizeLongMethod = textureUtilType?.GetMethod(
-            "GetStorageMemorySizeLong",
-            BindingFlags.Static | BindingFlags.Public
-        );
-        var result = (long)getStorageMemorySizeLongMethod.Invoke(null, new object[] { targetTexture });
+        var result = GetStorageMemorySize(targetTexture);
         var formattedBytes = EditorUtility.FormatBytes(result);
         
-        sb.AppendLine();
+        sb.AppendLine($"Imported Size: {formattedBytes}");
+
+        targetLabel.text = sb.ToString();
+        targetLabel.style.display = DisplayStyle.Flex;
+    }
+    
+    private static int GetSoundSize(Editor editor) {
+        var importer = editor.target as AudioImporter;
+        var so = new SerializedObject(importer);
+        var prop = so.FindProperty("m_PreviewData.m_CompSize");
+        return prop.intValue;
+    }
+
+    void UpdateAudioStats(Editor importerEditor, Label targetLabel)
+    {
+        var sb = new StringBuilder();
+        var result = GetSoundSize(importerEditor);
+        var formattedBytes = EditorUtility.FormatBytes(result);
+        
         sb.AppendLine($"Imported Size: {formattedBytes}");
 
         targetLabel.text = sb.ToString();
@@ -1049,12 +1112,10 @@ public class AssetCompareWindow : EditorWindow
         var sb = new StringBuilder();
         
         var assetPath = AssetDatabase.GetAssetPath(sourceAsset);
-
         var absolutePath = Path.Combine(Application.dataPath.Replace("Assets", ""), assetPath);
         var originalFileInfo = new FileInfo(absolutePath);
         var originalFileSizeBytes = originalFileInfo.Length;
-
-        sb.AppendLine();
+        
         sb.AppendLine($"Source Type: {originalFileInfo.Extension.Substring(1).ToUpper()}");
         sb.AppendLine($"Source Size: {EditorUtility.FormatBytes(originalFileSizeBytes)}");
         
