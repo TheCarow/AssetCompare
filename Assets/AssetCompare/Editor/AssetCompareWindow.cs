@@ -1,9 +1,13 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEditor.UIElements;
+using Object = UnityEngine.Object;
 
 public class AssetCompareWindow : EditorWindow
 {
@@ -19,6 +23,8 @@ public class AssetCompareWindow : EditorWindow
     private const float MinZoom = 0.1f;
     private const float MaxZoom = 5.0f;
     
+    private readonly Color AudioPreviewBGColor = new Color(0.192f, 0.192f, 0.192f, 1f);
+    private readonly Color WaveColor = new Color(1f, 0.549f, 0f, 1f);
     private AudioClip sourceAudioClip;
     private AudioClip previewAudioA;
     private AudioClip previewAudioB;
@@ -48,8 +54,16 @@ public class AssetCompareWindow : EditorWindow
     private Button swapAudioButton;
     private Label currentAudioLabel;
 
-    private HelpBox statBoxA;
-    private HelpBox statBoxB;
+    private Label sourceStatBox;
+    private Label statBoxA;
+    private Label statBoxB;
+    
+    private const int WaveformWidth = 512;
+    private const int WaveformHeight = 256;
+    private const int PreviewErrorLabelWidth = 600;
+    
+    private string[] compressPrefKeys = { "kCompressTexturesOnImport", "CompressTexturesOnImport", "CompressAssetsOnImport" };
+    private Dictionary<string, bool> prevImportCompressSetKeys = new();
 
     private enum AssetType
     {
@@ -77,6 +91,13 @@ public class AssetCompareWindow : EditorWindow
         if (this == null)
         {
             return;
+        }
+        
+        prevImportCompressSetKeys.Clear();
+        foreach (var k in compressPrefKeys)
+        {
+            prevImportCompressSetKeys[k] = (EditorPrefs.HasKey(k)) && EditorPrefs.GetBool(k);
+            EditorPrefs.SetBool(k, true);
         }
         
         string[] guids = AssetDatabase.FindAssets("t:Script AssetCompareWindow");
@@ -143,6 +164,11 @@ public class AssetCompareWindow : EditorWindow
         audioSourceB = null;
 
         CleanupPreviewFiles(); 
+        
+        foreach (var kv in prevImportCompressSetKeys)
+        {
+            EditorPrefs.SetBool(kv.Key, kv.Value);
+        }
     }
 
     private void Update()
@@ -182,7 +208,7 @@ public class AssetCompareWindow : EditorWindow
         };
 
         // Left column for all settings
-        var leftColumn = new VisualElement
+        var leftPanel = new VisualElement
         {
             style =
             {
@@ -199,8 +225,21 @@ public class AssetCompareWindow : EditorWindow
             label = "Source Asset",
         };
         sourceField.RegisterValueChangedCallback(OnSourceFieldChanged);
-        leftColumn.Add(sourceField);
-
+        leftPanel.Add(sourceField);
+        
+        sourceStatBox = new Label("No Data")
+        {
+            style =
+            {
+                width = 130,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = 4,
+                marginLeft = 4,
+                display = DisplayStyle.None,
+            }
+        };
+        leftPanel.Add(sourceStatBox);
+        
         // Audio controls
         audioControlsContainer = new VisualElement
         {
@@ -218,16 +257,23 @@ public class AssetCompareWindow : EditorWindow
         playStopButton = new Button(TogglePlayStop)
         {
             text = "Play",
-            style = { width = 80, marginRight = 8 }
+            style =
+            {
+                width = 80, 
+                marginRight = 8
+            }
         };
 
         swapAudioButton = new Button(SwapAudioChannel)
         {
             text = "Swap to B",
-            style = { width = 100, marginRight = 8 }
+            style = { 
+                width = 100, 
+                marginRight = 8 
+            }
         };
 
-        currentAudioLabel = new Label("Playing: A")
+        currentAudioLabel = new Label("Selected: A")
         {
             style = { unityTextAlign = TextAnchor.MiddleLeft }
         };
@@ -235,7 +281,7 @@ public class AssetCompareWindow : EditorWindow
         audioControlsContainer.Add(playStopButton);
         audioControlsContainer.Add(swapAudioButton);
         audioControlsContainer.Add(currentAudioLabel);
-        leftColumn.Add(audioControlsContainer);
+        leftPanel.Add(audioControlsContainer);
 
         // Headers
         var headersRow = new VisualElement
@@ -248,44 +294,88 @@ public class AssetCompareWindow : EditorWindow
             }
         };
 
-        var importerAHeader = new VisualElement
+        StyleLength importerContainerWidth = 300;
+        StyleLength importerContainerPadding = 6;
+        
+        StyleLength importerOverviewMargin = 4;
+        StyleLength importerOverviewWidth = 130;
+
+        var importerAOverview = new VisualElement
         {
             style =
             {
-                width = 300,
-                marginRight = 8,
+                width = importerContainerWidth,
                 flexDirection = FlexDirection.Column,
-                paddingLeft = 6,
-                paddingRight = 6,
-                paddingTop = 6,
-                paddingBottom = 6
+                paddingRight = importerContainerPadding,
+                paddingBottom = importerContainerPadding
             }
         };
-        importerAHeader.Add(new Label("Settings A"));
         
-        statBoxA = new HelpBox("No Data", HelpBoxMessageType.Info);
-        importerAHeader.Add(statBoxA);
-
-        var importerBHeader = new VisualElement
+        importerAOverview.Add(new Label("Asset A")
         {
             style =
             {
-                width = 300,
-                flexDirection = FlexDirection.Column,
-                paddingLeft = 6,
-                paddingRight = 6,
-                paddingTop = 6,
-                paddingBottom = 6
+                width = importerOverviewWidth,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
+                unityFontStyleAndWeight = FontStyle.Bold,
+            }
+        });
+        
+        statBoxA = new Label("No Data")
+        {
+            style =
+            {
+                width = importerOverviewWidth,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
+                display = DisplayStyle.None,
             }
         };
-        importerBHeader.Add(new Label("Settings B"));
-        
-        statBoxB = new HelpBox("No Data", HelpBoxMessageType.Info);
-        importerBHeader.Add(statBoxB);
+        importerAOverview.Add(statBoxA);
 
-        headersRow.Add(importerAHeader);
-        headersRow.Add(importerBHeader);
-        leftColumn.Add(headersRow);
+        var importerBOverview = new VisualElement
+        {
+            style =
+            {
+                width = importerContainerWidth,
+                flexDirection = FlexDirection.Column,
+                paddingLeft = importerContainerPadding,
+                paddingRight = importerContainerPadding,
+                paddingBottom = importerContainerPadding
+            }
+        };
+        
+        importerBOverview.Add(new Label("Asset B")
+        {
+            style =
+            {
+                width = importerOverviewWidth,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
+                unityFontStyleAndWeight = FontStyle.Bold,
+            }
+        });
+        
+        statBoxB = new Label("No Data")
+        {
+            style =
+            {
+                width = importerOverviewWidth,
+                unityTextAlign = TextAnchor.MiddleLeft,
+                marginRight = importerOverviewMargin,
+                marginLeft = importerOverviewMargin,
+                display = DisplayStyle.None,
+            }
+        };
+        importerBOverview.Add(statBoxB);
+
+        headersRow.Add(importerAOverview);
+        headersRow.Add(importerBOverview);
+        leftPanel.Add(headersRow);
 
         // Importer Scroll
         var importersScroll = new ScrollView(ScrollViewMode.Vertical)
@@ -312,7 +402,7 @@ public class AssetCompareWindow : EditorWindow
         {
             style =
             {
-                width = 300,
+                width = importerContainerWidth,
                 marginRight = 8,
                 flexShrink = 0
             }
@@ -322,7 +412,7 @@ public class AssetCompareWindow : EditorWindow
         {
             style =
             {
-                width = 300,
+                width = importerContainerWidth,
                 flexShrink = 0
             }
         };
@@ -331,9 +421,9 @@ public class AssetCompareWindow : EditorWindow
         importersRow.Add(importerBContainer);
 
         importersScroll.Add(importersRow);
-        leftColumn.Add(importersScroll);
+        leftPanel.Add(importersScroll);
 
-        mainRow.Add(leftColumn);
+        mainRow.Add(leftPanel);
 
         // Preview Panel
         var previewPanel = new VisualElement { style = { flexGrow = 1 } };
@@ -364,7 +454,15 @@ public class AssetCompareWindow : EditorWindow
             {
                 imp.SaveAndReimport();
                 RefreshPreviews();
-                UpdateTextureStats(previewA, statBoxA);
+                
+                if (sourceTexture != null)
+                {
+                    UpdateTextureStats(previewA, statBoxA);
+                }
+                else
+                {
+                    UpdateAudioStats(importerEditorA, statBoxA);
+                }
             }
         }
     }
@@ -385,7 +483,14 @@ public class AssetCompareWindow : EditorWindow
             {
                 imp.SaveAndReimport();
                 RefreshPreviews();
-                UpdateTextureStats(previewB, statBoxB);
+                if (sourceTexture != null)
+                {
+                    UpdateTextureStats(previewB, statBoxB);
+                }
+                else
+                {
+                    UpdateAudioStats(importerEditorB, statBoxB);
+                }
             }
         }
     }
@@ -432,6 +537,10 @@ public class AssetCompareWindow : EditorWindow
             audioControlsContainer.style.display = DisplayStyle.None;
             UnregisterTexturePreviewEvents();
             
+            sourceStatBox.style.display = DisplayStyle.None;
+            statBoxA.style.display = DisplayStyle.None;
+            statBoxB.style.display = DisplayStyle.None;
+            
             return;
         }
 
@@ -451,6 +560,9 @@ public class AssetCompareWindow : EditorWindow
             audioControlsContainer.style.display = DisplayStyle.Flex;
             StopAudio();
             UnregisterTexturePreviewEvents();
+            
+            statBoxA.style.display = DisplayStyle.None;
+            statBoxB.style.display = DisplayStyle.None;
         }
         else
         {
@@ -461,8 +573,12 @@ public class AssetCompareWindow : EditorWindow
             UnregisterTexturePreviewEvents();
             EditorUtility.DisplayDialog("Unsupported Asset",
                 "Only Texture2D and AudioClip assets are supported for comparison.", "OK");
+            
+            statBoxA.style.display = DisplayStyle.None;
+            statBoxB.style.display = DisplayStyle.None;
         }
         
+        UpdateSourceStats();
         GeneratePreview();
     }
 
@@ -485,6 +601,10 @@ public class AssetCompareWindow : EditorWindow
             EditorUtility.DisplayDialog("Invalid asset", "Selected asset is not valid in the project.", "OK");
             return;
         }
+        
+        // TODO - BUSTED
+        EditorUtility.SetDirty(this);
+        AssetDatabase.SaveAssets();
 
         if (!AssetDatabase.IsValidFolder(assetCompareTempPath))
         {
@@ -551,6 +671,7 @@ public class AssetCompareWindow : EditorWindow
         }
         previewAudioA = AssetDatabase.LoadAssetAtPath<AudioClip>(tempAPath);
         importerEditorA = CreateImporterEditor(previewAudioA);
+        UpdateAudioStats(importerEditorA, statBoxA);
         
         if (importerEditorB != null)
         {
@@ -559,18 +680,17 @@ public class AssetCompareWindow : EditorWindow
         }
         previewAudioB = AssetDatabase.LoadAssetAtPath<AudioClip>(tempBPath);
         importerEditorB = CreateImporterEditor(previewAudioB);
+        UpdateAudioStats(importerEditorB, statBoxB);
 
         if (previewAudioA != null)
         {
-            waveformA = GenerateWaveform(previewAudioA, 512, 128);
+            waveformA = GenerateWaveform(previewAudioA, WaveformWidth, WaveformHeight);
         }
 
         if (previewAudioB != null)
         {
-            waveformB = GenerateWaveform(previewAudioB, 512, 128);
+            waveformB = GenerateWaveform(previewAudioB, WaveformWidth, WaveformHeight);
         }
-
-        ResetStats();
 
         previewContainer?.MarkDirtyRepaint();
     }
@@ -706,7 +826,7 @@ public class AssetCompareWindow : EditorWindow
 
         if (currentAudioLabel != null)
         {
-            currentAudioLabel.text = "Playing: " + (isPlayingA ? "A" : "B");
+            currentAudioLabel.text = "Selected: " + (isPlayingA ? "A" : "B");
         }
     }
 
@@ -716,13 +836,13 @@ public class AssetCompareWindow : EditorWindow
 
         if (currentAssetType == AssetType.None)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 20), "No asset selected.");
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 20), "No asset selected.");
             return;
         }
 
         if (currentAssetType == AssetType.Unsupported)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 40),
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 40),
                 "Unsupported asset type.\nOnly Texture2D and AudioClip assets are supported.");
             return;
         }
@@ -741,7 +861,7 @@ public class AssetCompareWindow : EditorWindow
     {
         if (previewA == null || previewB == null)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 20), "No texture preview available.");
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 20), "No texture preview available.");
             return;
         }
 
@@ -754,7 +874,7 @@ public class AssetCompareWindow : EditorWindow
 
         if (currentWaveform == null)
         {
-            GUI.Label(new Rect(rect.x + 8, rect.y + 8, 600, 20), "No audio preview available.");
+            GUI.Label(new Rect(rect.x + 8, rect.y + 8, PreviewErrorLabelWidth, 20), "No audio preview available.");
             return;
         }
 
@@ -773,29 +893,29 @@ public class AssetCompareWindow : EditorWindow
             }
         }
 
-        GUI.Label(new Rect(rect.x + 8, rect.y + 8, 100, 20),
-            isPlayingA ? "A" : "B", EditorStyles.boldLabel);
+        var sampleLetter = isPlayingA ? "A" : "B";
+        GUI.Label(new Rect(rect.x + 8, rect.y + 8, 100, 20), sampleLetter, EditorStyles.boldLabel);
     }
 
     private void DrawSplitPreview(Rect rect, Texture2D leftTex, Texture2D rightTex, float handle)
     {
         var handleX = rect.x + rect.width * handle;
-        var h = rect.height;
-        var w = rect.width;
+        var height = rect.height;
+        var width = rect.width;
 
         Vector2 pivot = rect.center;
-        var scaledW = w * zoom;
-        var scaledH = h * zoom;
+        var scaledW = width * zoom;
+        var scaledH = height * zoom;
         var offsetX = pivot.x - (scaledW / 2f);
         var offsetY = pivot.y - (scaledH / 2f);
         Rect drawRect = new Rect(offsetX, offsetY, scaledW, scaledH);
 
-        var leftWidth = Mathf.Clamp(handleX - rect.x, 0, w);
-        var rightWidth = Mathf.Clamp(rect.x + w - handleX, 0, w);
+        var leftWidth = Mathf.Clamp(handleX - rect.x, 0, width);
+        var rightWidth = Mathf.Clamp(rect.x + width - handleX, 0, width);
 
         if (leftTex != null && leftWidth > 0f)
         {
-            GUI.BeginGroup(new Rect(rect.x, rect.y, leftWidth, h));
+            GUI.BeginGroup(new Rect(rect.x, rect.y, leftWidth, height));
             var local = new Rect(drawRect.x - rect.x, drawRect.y - rect.y, drawRect.width, drawRect.height);
             GUI.DrawTexture(local, leftTex, ScaleMode.ScaleToFit, true);
             GUI.EndGroup();
@@ -803,7 +923,7 @@ public class AssetCompareWindow : EditorWindow
 
         if (rightTex != null && rightWidth > 0f)
         {
-            GUI.BeginGroup(new Rect(handleX, rect.y, rightWidth, h));
+            GUI.BeginGroup(new Rect(handleX, rect.y, rightWidth, height));
             var local = new Rect(drawRect.x - handleX, drawRect.y - rect.y, drawRect.width, drawRect.height);
             GUI.DrawTexture(local, rightTex, ScaleMode.ScaleToFit, true);
             GUI.EndGroup();
@@ -812,11 +932,11 @@ public class AssetCompareWindow : EditorWindow
         Handles.BeginGUI();
         var previousHandleColor = Handles.color;
         Handles.color = Color.white;
-        Handles.DrawLine(new Vector3(handleX, rect.y), new Vector3(handleX, rect.y + h));
+        Handles.DrawLine(new Vector3(handleX, rect.y), new Vector3(handleX, rect.y + height));
         Handles.color = previousHandleColor;
         Handles.EndGUI();
 
-        EditorGUIUtility.AddCursorRect(new Rect(handleX - 6, rect.y, 12, h), MouseCursor.ResizeHorizontal);
+        EditorGUIUtility.AddCursorRect(new Rect(handleX - 6, rect.y, 12, height), MouseCursor.ResizeHorizontal);
     }
 
     private void OnPointerDownPreview(PointerDownEvent evt)
@@ -887,14 +1007,12 @@ public class AssetCompareWindow : EditorWindow
 
         var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Point;
-        var bgColor = new Color(0.192f, 0.192f, 0.192f, 1f);
-        var waveColor = new Color(1f, 0.549f, 0f, 1f);
 
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                tex.SetPixel(x, y, bgColor);
+                tex.SetPixel(x, y, AudioPreviewBGColor);
             }
         }
 
@@ -935,7 +1053,7 @@ public class AssetCompareWindow : EditorWindow
 
             for (int y = minY; y <= maxY; y++)
             {
-                tex.SetPixel(x, y, waveColor);
+                tex.SetPixel(x, y, WaveColor);
             }
         }
 
@@ -949,41 +1067,85 @@ public class AssetCompareWindow : EditorWindow
         {
             if (previewAudioA != null)
             {
-                waveformA = GenerateWaveform(previewAudioA, 1024, 256);
+                waveformA = GenerateWaveform(previewAudioA, WaveformWidth, WaveformHeight);
             }
 
             if (previewAudioB != null)
             {
-                waveformB = GenerateWaveform(previewAudioB, 1024, 256);
+                waveformB = GenerateWaveform(previewAudioB, WaveformWidth, WaveformHeight);
             }
         }
         previewContainer?.MarkDirtyRepaint();
     }
-
-    void UpdateTextureStats(Texture2D targetTexture, HelpBox targetHelpBox)
-    {
-        var textureUtilType = typeof(Editor).Assembly.GetType("UnityEditor.TextureUtil");
-
-        MethodInfo getStorageMemorySizeLongMethod = textureUtilType?.GetMethod(
+    
+    private static long GetStorageMemorySize(Texture2D texture) {
+        var unityEditorAssembly = typeof(Editor).Assembly;
+        var textureUtilClass = unityEditorAssembly.GetType("UnityEditor.TextureUtil");
+        var method = textureUtilClass.GetMethod(
             "GetStorageMemorySizeLong",
             BindingFlags.Static | BindingFlags.Public
         );
-        var result = (long)getStorageMemorySizeLongMethod.Invoke(null, new object[] { targetTexture });
-        var formattedBytes = EditorUtility.FormatBytes(result);
-
-        targetHelpBox.text = formattedBytes;
-        if (IsNPOT(previewA))
-        {
-            targetHelpBox.text += "\nNPOT";
-        }
-        
-        targetHelpBox.style.display = DisplayStyle.Flex;
+			
+        var size = (long)method.Invoke(
+            null,
+            new object[] {
+                texture
+            }
+        );
+			
+        return size;
     }
 
-    void ResetStats()
+    void UpdateTextureStats(Texture2D targetTexture, Label targetLabel)
     {
-        statBoxA.style.display = DisplayStyle.None;
-        statBoxB.style.display = DisplayStyle.None;
+        var sb = new StringBuilder();
+        var result = GetStorageMemorySize(targetTexture);
+        var formattedBytes = EditorUtility.FormatBytes(result);
+        
+        sb.AppendLine($"Imported Size: {formattedBytes}");
+
+        targetLabel.text = sb.ToString();
+        targetLabel.style.display = DisplayStyle.Flex;
+    }
+    
+    private static int GetSoundSize(Editor editor) {
+        var importer = editor.target as AudioImporter;
+        var so = new SerializedObject(importer);
+        var prop = so.FindProperty("m_PreviewData.m_CompSize");
+        return prop.intValue;
+    }
+
+    void UpdateAudioStats(Editor importerEditor, Label targetLabel)
+    {
+        var sb = new StringBuilder();
+        var result = GetSoundSize(importerEditor);
+        var formattedBytes = EditorUtility.FormatBytes(result);
+        
+        sb.AppendLine($"Imported Size: {formattedBytes}");
+
+        targetLabel.text = sb.ToString();
+        targetLabel.style.display = DisplayStyle.Flex;
+    }
+    
+    void UpdateSourceStats()
+    {
+        var sb = new StringBuilder();
+        
+        var assetPath = AssetDatabase.GetAssetPath(sourceAsset);
+        var absolutePath = Path.Combine(Application.dataPath.Replace("Assets", ""), assetPath);
+        var originalFileInfo = new FileInfo(absolutePath);
+        var originalFileSizeBytes = originalFileInfo.Length;
+        
+        sb.AppendLine($"Source Type: {originalFileInfo.Extension.Substring(1).ToUpper()}");
+        sb.AppendLine($"Source Size: {EditorUtility.FormatBytes(originalFileSizeBytes)}");
+        
+        if (IsNPOT(sourceTexture))
+        {
+            sb.AppendLine("\nNon-power-of-two (NPOT) textures are incompatible with some compression formats.");
+        }
+
+        sourceStatBox.text = sb.ToString();
+        sourceStatBox.style.display = DisplayStyle.Flex;
     }
     
     bool IsNPOT(Texture2D texture)
