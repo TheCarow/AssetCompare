@@ -2,7 +2,7 @@
 
 Unity Editor tool for A/B comparing an asset's import settings.
 
-![assetcomparescreenshot](https://github.com/user-attachments/assets/7d3f7041-609a-4104-9132-40cb308f9e22)
+![assetcomparepreview](https://github.com/user-attachments/assets/ead38c91-0f9e-4444-bf00-b4d9b3914a34)
 
 ## Features
 * Tool works with textures and audio clips.
@@ -10,4 +10,7 @@ Unity Editor tool for A/B comparing an asset's import settings.
 * Texture preview supports zooming in/out.
 * Toggle between two audio clips as they play to compare audio quality.
 
-
+## Usage
+**NOTE:** Opening *Asset Compare* enables the **Preferences... > Asset Pipeline > Compress Textures on Import** setting and restores the previous value when the window is closed.
+1. Open **Window > Analysis > Asset Compare**
+2. Select source asset.
