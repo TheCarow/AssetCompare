@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -60,6 +61,9 @@ public class AssetCompareWindow : EditorWindow
     private const int WaveformWidth = 512;
     private const int WaveformHeight = 256;
     private const int PreviewErrorLabelWidth = 600;
+    
+    private string[] compressPrefKeys = { "kCompressTexturesOnImport", "CompressTexturesOnImport", "CompressAssetsOnImport" };
+    private Dictionary<string, bool> prevImportCompressSetKeys = new();
 
     private enum AssetType
     {
@@ -87,6 +91,13 @@ public class AssetCompareWindow : EditorWindow
         if (this == null)
         {
             return;
+        }
+        
+        prevImportCompressSetKeys.Clear();
+        foreach (var k in compressPrefKeys)
+        {
+            prevImportCompressSetKeys[k] = (EditorPrefs.HasKey(k)) && EditorPrefs.GetBool(k);
+            EditorPrefs.SetBool(k, true);
         }
         
         string[] guids = AssetDatabase.FindAssets("t:Script AssetCompareWindow");
@@ -153,6 +164,11 @@ public class AssetCompareWindow : EditorWindow
         audioSourceB = null;
 
         CleanupPreviewFiles(); 
+        
+        foreach (var kv in prevImportCompressSetKeys)
+        {
+            EditorPrefs.SetBool(kv.Key, kv.Value);
+        }
     }
 
     private void Update()
@@ -585,6 +601,10 @@ public class AssetCompareWindow : EditorWindow
             EditorUtility.DisplayDialog("Invalid asset", "Selected asset is not valid in the project.", "OK");
             return;
         }
+        
+        // TODO - BUSTED
+        EditorUtility.SetDirty(this);
+        AssetDatabase.SaveAssets();
 
         if (!AssetDatabase.IsValidFolder(assetCompareTempPath))
         {
