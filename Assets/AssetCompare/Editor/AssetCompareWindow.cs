@@ -62,7 +62,7 @@ public class AssetCompareWindow : EditorWindow
     private const int WaveformHeight = 256;
     private const int PreviewErrorLabelWidth = 600;
     
-    private string[] compressPrefKeys = { "kCompressTexturesOnImport", "CompressTexturesOnImport", "CompressAssetsOnImport" };
+    private static readonly string[] compressPrefKeys = { "kCompressTexturesOnImport", "CompressTexturesOnImport", "CompressAssetsOnImport" };
     private Dictionary<string, bool> prevImportCompressSetKeys = new();
 
     private enum AssetType
@@ -300,78 +300,53 @@ public class AssetCompareWindow : EditorWindow
         StyleLength importerOverviewMargin = 4;
         StyleLength importerOverviewWidth = 130;
 
-        var importerAOverview = new VisualElement
+        (VisualElement column, Label statBox) BuildOverviewColumn(string headerText, StyleLength paddingLeft)
         {
-            style =
+            var column = new VisualElement
             {
-                width = importerContainerWidth,
-                flexDirection = FlexDirection.Column,
-                paddingRight = importerContainerPadding,
-                paddingBottom = importerContainerPadding
-            }
-        };
-        
-        importerAOverview.Add(new Label("Asset A")
-        {
-            style =
-            {
-                width = importerOverviewWidth,
-                unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = importerOverviewMargin,
-                marginLeft = importerOverviewMargin,
-                unityFontStyleAndWeight = FontStyle.Bold,
-            }
-        });
-        
-        statBoxA = new Label("No Data")
-        {
-            style =
-            {
-                width = importerOverviewWidth,
-                unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = importerOverviewMargin,
-                marginLeft = importerOverviewMargin,
-                display = DisplayStyle.None,
-            }
-        };
-        importerAOverview.Add(statBoxA);
+                style =
+                {
+                    width = importerContainerWidth,
+                    flexDirection = FlexDirection.Column,
+                    paddingLeft = paddingLeft,
+                    paddingRight = importerContainerPadding,
+                    paddingBottom = importerContainerPadding
+                }
+            };
 
-        var importerBOverview = new VisualElement
-        {
-            style =
+            column.Add(new Label(headerText)
             {
-                width = importerContainerWidth,
-                flexDirection = FlexDirection.Column,
-                paddingLeft = importerContainerPadding,
-                paddingRight = importerContainerPadding,
-                paddingBottom = importerContainerPadding
-            }
-        };
-        
-        importerBOverview.Add(new Label("Asset B")
-        {
-            style =
+                style =
+                {
+                    width = importerOverviewWidth,
+                    unityTextAlign = TextAnchor.MiddleLeft,
+                    marginRight = importerOverviewMargin,
+                    marginLeft = importerOverviewMargin,
+                    unityFontStyleAndWeight = FontStyle.Bold,
+                }
+            });
+
+            var statBox = new Label("No Data")
             {
-                width = importerOverviewWidth,
-                unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = importerOverviewMargin,
-                marginLeft = importerOverviewMargin,
-                unityFontStyleAndWeight = FontStyle.Bold,
-            }
-        });
-        
-        statBoxB = new Label("No Data")
-        {
-            style =
-            {
-                width = importerOverviewWidth,
-                unityTextAlign = TextAnchor.MiddleLeft,
-                marginRight = importerOverviewMargin,
-                marginLeft = importerOverviewMargin,
-                display = DisplayStyle.None,
-            }
-        };
-        importerBOverview.Add(statBoxB);
+                style =
+                {
+                    width = importerOverviewWidth,
+                    unityTextAlign = TextAnchor.MiddleLeft,
+                    marginRight = importerOverviewMargin,
+                    marginLeft = importerOverviewMargin,
+                    display = DisplayStyle.None,
+                }
+            };
+            column.Add(statBox);
+
+            return (column, statBox);
+        }
+
+        var (importerAOverview, statBoxAColumn) = BuildOverviewColumn("Asset A", 0);
+        statBoxA = statBoxAColumn;
+
+        var (importerBOverview, statBoxBColumn) = BuildOverviewColumn("Asset B", importerContainerPadding);
+        statBoxB = statBoxBColumn;
 
         headersRow.Add(importerAOverview);
         headersRow.Add(importerBOverview);
@@ -438,59 +413,37 @@ public class AssetCompareWindow : EditorWindow
         rootVisualElement.Add(mainRow);
     }
 
-    private void DrawImporterA()
-    {
-        EditorGUI.BeginChangeCheck();
-        
-        if (importerEditorA != null)
-        {
-            importerEditorA.OnInspectorGUI();
-        }
-        
-        if (EditorGUI.EndChangeCheck())
-        {
-            var imp = importerEditorA.target as AssetImporter;
-            if (imp != null)
-            {
-                imp.SaveAndReimport();
-                RefreshPreviews();
-                
-                if (sourceTexture != null)
-                {
-                    UpdateTextureStats(previewA, statBoxA);
-                }
-                else
-                {
-                    UpdateAudioStats(importerEditorA, statBoxA);
-                }
-            }
-        }
-    }
+    private void DrawImporterA() => DrawImporter(importerEditorA, previewA, statBoxA);
 
-    private void DrawImporterB()
+    private void DrawImporterB() => DrawImporter(importerEditorB, previewB, statBoxB);
+
+    private void DrawImporter(Editor importerEditor, Texture2D previewTexture, Label statBox)
     {
-        EditorGUI.BeginChangeCheck();
-        
-        if (importerEditorB != null)
+        if (importerEditor == null)
         {
-            importerEditorB.OnInspectorGUI();
+            return;
         }
-        
-        if (EditorGUI.EndChangeCheck())
+
+        EditorGUI.BeginChangeCheck();
+        importerEditor.OnInspectorGUI();
+
+        if (!EditorGUI.EndChangeCheck())
         {
-            var imp = importerEditorB.target as AssetImporter;
-            if (imp != null)
+            return;
+        }
+
+        if (importerEditor.target is AssetImporter imp)
+        {
+            imp.SaveAndReimport();
+            RefreshPreviews();
+
+            if (currentAssetType == AssetType.Texture)
             {
-                imp.SaveAndReimport();
-                RefreshPreviews();
-                if (sourceTexture != null)
-                {
-                    UpdateTextureStats(previewB, statBoxB);
-                }
-                else
-                {
-                    UpdateAudioStats(importerEditorB, statBoxB);
-                }
+                UpdateTextureStats(previewTexture, statBox);
+            }
+            else
+            {
+                UpdateAudioStats(importerEditor, statBox);
             }
         }
     }
@@ -639,22 +592,29 @@ public class AssetCompareWindow : EditorWindow
         }
     }
 
-    private void GenerateTexturePreview()
+    private void DestroyImporterEditors()
     {
         if (importerEditorA != null)
         {
             DestroyImmediate(importerEditorA);
             importerEditorA = null;
         }
-        previewA = AssetDatabase.LoadAssetAtPath<Texture2D>(tempAPath);
-        importerEditorA = CreateImporterEditor(previewA);
-        UpdateTextureStats(previewA, statBoxA);
-        
+
         if (importerEditorB != null)
         {
             DestroyImmediate(importerEditorB);
             importerEditorB = null;
         }
+    }
+
+    private void GenerateTexturePreview()
+    {
+        DestroyImporterEditors();
+
+        previewA = AssetDatabase.LoadAssetAtPath<Texture2D>(tempAPath);
+        importerEditorA = CreateImporterEditor(previewA);
+        UpdateTextureStats(previewA, statBoxA);
+
         previewB = AssetDatabase.LoadAssetAtPath<Texture2D>(tempBPath);
         importerEditorB = CreateImporterEditor(previewB);
         UpdateTextureStats(previewB, statBoxB);
@@ -664,20 +624,12 @@ public class AssetCompareWindow : EditorWindow
 
     private void GenerateAudioPreview()
     {
-        if (importerEditorA != null)
-        {
-            DestroyImmediate(importerEditorA);
-            importerEditorA = null;
-        }
+        DestroyImporterEditors();
+
         previewAudioA = AssetDatabase.LoadAssetAtPath<AudioClip>(tempAPath);
         importerEditorA = CreateImporterEditor(previewAudioA);
         UpdateAudioStats(importerEditorA, statBoxA);
-        
-        if (importerEditorB != null)
-        {
-            DestroyImmediate(importerEditorB);
-            importerEditorB = null;
-        }
+
         previewAudioB = AssetDatabase.LoadAssetAtPath<AudioClip>(tempBPath);
         importerEditorB = CreateImporterEditor(previewAudioB);
         UpdateAudioStats(importerEditorB, statBoxB);
@@ -1005,58 +957,71 @@ public class AssetCompareWindow : EditorWindow
             return null;
         }
 
-        var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
-        tex.filterMode = FilterMode.Point;
-
-        for (int x = 0; x < width; x++)
+        var tex = new Texture2D(width, height, TextureFormat.RGBA32, false)
         {
-            for (int y = 0; y < height; y++)
-            {
-                tex.SetPixel(x, y, AudioPreviewBGColor);
-            }
+            filterMode = FilterMode.Point
+        };
+
+        var pixels = new Color32[width * height];
+        Color32 background = AudioPreviewBGColor;
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = background;
         }
 
         var sampleCount = clip.samples * clip.channels;
-        var samples = new float[sampleCount];
-        clip.GetData(samples, 0);
-
-        var samplesPerPixel = sampleCount / width;
-        var halfHeight = height / 2f;
-
-        for (int x = 0; x < width; x++)
+        if (sampleCount > 0)
         {
-            var min = 1f;
-            var max = -1f;
+            var samples = new float[sampleCount];
+            clip.GetData(samples, 0);
 
-            for (int i = 0; i < samplesPerPixel; i++)
+            var samplesPerPixel = Mathf.Max(1, sampleCount / width);
+            var halfHeight = height / 2f;
+            Color32 wave = WaveColor;
+
+            for (int x = 0; x < width; x++)
             {
-                var sampleIndex = x * samplesPerPixel + i;
-                if (sampleIndex >= sampleCount)
+                var min = 1f;
+                var max = -1f;
+                var start = x * samplesPerPixel;
+
+                for (int i = 0; i < samplesPerPixel; i++)
                 {
-                    break;
+                    var sampleIndex = start + i;
+                    if (sampleIndex >= sampleCount)
+                    {
+                        break;
+                    }
+
+                    var sample = samples[sampleIndex];
+                    if (sample < min)
+                    {
+                        min = sample;
+                    }
+
+                    if (sample > max)
+                    {
+                        max = sample;
+                    }
                 }
 
-                var sample = samples[sampleIndex];
-                if (sample < min)
+                // No samples mapped to this column (clip shorter than width).
+                if (max < min)
                 {
-                    min = sample;
+                    continue;
                 }
 
-                if (sample > max)
+                var minY = Mathf.Clamp((int)(halfHeight + min * halfHeight), 0, height - 1);
+                var maxY = Mathf.Clamp((int)(halfHeight + max * halfHeight), 0, height - 1);
+
+                for (int y = minY; y <= maxY; y++)
                 {
-                    max = sample;
+                    pixels[y * width + x] = wave;
                 }
-            }
-
-            var minY = Mathf.Clamp((int)(halfHeight + min * halfHeight), 0, height - 1);
-            var maxY = Mathf.Clamp((int)(halfHeight + max * halfHeight), 0, height - 1);
-
-            for (int y = minY; y <= maxY; y++)
-            {
-                tex.SetPixel(x, y, WaveColor);
             }
         }
 
+        tex.SetPixels32(pixels);
         tex.Apply();
         return tex;
     }
@@ -1078,36 +1043,42 @@ public class AssetCompareWindow : EditorWindow
         previewContainer?.MarkDirtyRepaint();
     }
     
-    private static long GetStorageMemorySize(Texture2D texture) {
-        var unityEditorAssembly = typeof(Editor).Assembly;
-        var textureUtilClass = unityEditorAssembly.GetType("UnityEditor.TextureUtil");
-        var method = textureUtilClass.GetMethod(
-            "GetStorageMemorySizeLong",
-            BindingFlags.Static | BindingFlags.Public
-        );
-			
-        var size = (long)method.Invoke(
-            null,
-            new object[] {
-                texture
-            }
-        );
-			
-        return size;
+    private static MethodInfo storageMemorySizeMethod;
+
+    private static long GetStorageMemorySize(Texture2D texture)
+    {
+        if (texture == null)
+        {
+            return 0;
+        }
+
+        if (storageMemorySizeMethod == null)
+        {
+            var textureUtilClass = typeof(Editor).Assembly.GetType("UnityEditor.TextureUtil");
+            storageMemorySizeMethod = textureUtilClass?.GetMethod(
+                "GetStorageMemorySizeLong",
+                BindingFlags.Static | BindingFlags.Public);
+        }
+
+        if (storageMemorySizeMethod == null)
+        {
+            return 0;
+        }
+
+        return (long)storageMemorySizeMethod.Invoke(null, new object[] { texture });
+    }
+
+    private static void SetImportedSizeLabel(Label targetLabel, long sizeBytes)
+    {
+        targetLabel.text = $"Imported Size: {EditorUtility.FormatBytes(sizeBytes)}";
+        targetLabel.style.display = DisplayStyle.Flex;
     }
 
     void UpdateTextureStats(Texture2D targetTexture, Label targetLabel)
     {
-        var sb = new StringBuilder();
-        var result = GetStorageMemorySize(targetTexture);
-        var formattedBytes = EditorUtility.FormatBytes(result);
-        
-        sb.AppendLine($"Imported Size: {formattedBytes}");
-
-        targetLabel.text = sb.ToString();
-        targetLabel.style.display = DisplayStyle.Flex;
+        SetImportedSizeLabel(targetLabel, GetStorageMemorySize(targetTexture));
     }
-    
+
     private static int GetSoundSize(Editor editor) {
         var importer = editor.target as AudioImporter;
         var so = new SerializedObject(importer);
@@ -1117,14 +1088,7 @@ public class AssetCompareWindow : EditorWindow
 
     void UpdateAudioStats(Editor importerEditor, Label targetLabel)
     {
-        var sb = new StringBuilder();
-        var result = GetSoundSize(importerEditor);
-        var formattedBytes = EditorUtility.FormatBytes(result);
-        
-        sb.AppendLine($"Imported Size: {formattedBytes}");
-
-        targetLabel.text = sb.ToString();
-        targetLabel.style.display = DisplayStyle.Flex;
+        SetImportedSizeLabel(targetLabel, GetSoundSize(importerEditor));
     }
     
     void UpdateSourceStats()
@@ -1132,11 +1096,16 @@ public class AssetCompareWindow : EditorWindow
         var sb = new StringBuilder();
         
         var assetPath = AssetDatabase.GetAssetPath(sourceAsset);
-        var absolutePath = Path.Combine(Application.dataPath.Replace("Assets", ""), assetPath);
+        // Application.dataPath ends in "/Assets" so its parent is the project root.
+        var projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? string.Empty;
+        var absolutePath = Path.Combine(projectRoot, assetPath);
         var originalFileInfo = new FileInfo(absolutePath);
         var originalFileSizeBytes = originalFileInfo.Length;
-        
-        sb.AppendLine($"Source Type: {originalFileInfo.Extension.Substring(1).ToUpper()}");
+
+        var extension = originalFileInfo.Extension;
+        var sourceType = string.IsNullOrEmpty(extension) ? "Unknown" : extension.TrimStart('.').ToUpper();
+
+        sb.AppendLine($"Source Type: {sourceType}");
         sb.AppendLine($"Source Size: {EditorUtility.FormatBytes(originalFileSizeBytes)}");
         
         if (IsNPOT(sourceTexture))
