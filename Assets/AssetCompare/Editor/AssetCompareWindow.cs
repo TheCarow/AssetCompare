@@ -19,9 +19,13 @@ public class AssetCompareWindow : EditorWindow
     private Texture2D previewB;
     private float handlePos = 0.5f;
     private bool dragging = false;
+    private bool panning = false;
+    private Vector2 lastPanPosition;
+    private Vector2 panOffset = Vector2.zero;
     private float zoom = 1.0f;
     private const float MinZoom = 0.1f;
     private const float MaxZoom = 5.0f;
+    private const float HandleGrabHalfWidth = 6f;
     
     private readonly Color AudioPreviewBGColor = new Color(0.192f, 0.192f, 0.192f, 1f);
     private readonly Color WaveColor = new Color(1f, 0.549f, 0f, 1f);
@@ -503,6 +507,8 @@ public class AssetCompareWindow : EditorWindow
             sourceTexture = asset as Texture2D;
             sourceAudioClip = null;
             audioControlsContainer.style.display = DisplayStyle.None;
+            zoom = 1f;
+            panOffset = Vector2.zero;
             RegisterTexturePreviewEvents();
         }
         else if (asset is AudioClip)
@@ -858,8 +864,8 @@ public class AssetCompareWindow : EditorWindow
         Vector2 pivot = rect.center;
         var scaledW = width * zoom;
         var scaledH = height * zoom;
-        var offsetX = pivot.x - (scaledW / 2f);
-        var offsetY = pivot.y - (scaledH / 2f);
+        var offsetX = pivot.x - (scaledW / 2f) + panOffset.x;
+        var offsetY = pivot.y - (scaledH / 2f) + panOffset.y;
         Rect drawRect = new Rect(offsetX, offsetY, scaledW, scaledH);
 
         var leftWidth = Mathf.Clamp(handleX - rect.x, 0, width);
@@ -888,7 +894,21 @@ public class AssetCompareWindow : EditorWindow
         Handles.color = previousHandleColor;
         Handles.EndGUI();
 
-        EditorGUIUtility.AddCursorRect(new Rect(handleX - 6, rect.y, 12, height), MouseCursor.ResizeHorizontal);
+        // Pan cursor on both sides of the handle, leaving the swiper grab zone as the default pointer.
+        var handleLeft = handleX - HandleGrabHalfWidth;
+        var handleRight = handleX + HandleGrabHalfWidth;
+
+        var leftPanWidth = handleLeft - rect.x;
+        if (leftPanWidth > 0f)
+        {
+            EditorGUIUtility.AddCursorRect(new Rect(rect.x, rect.y, leftPanWidth, height), MouseCursor.Pan);
+        }
+
+        var rightPanWidth = rect.x + width - handleRight;
+        if (rightPanWidth > 0f)
+        {
+            EditorGUIUtility.AddCursorRect(new Rect(handleRight, rect.y, rightPanWidth, height), MouseCursor.Pan);
+        }
     }
 
     private void OnPointerDownPreview(PointerDownEvent evt)
@@ -899,42 +919,54 @@ public class AssetCompareWindow : EditorWindow
         }
 
         var rect = previewContainer.contentRect;
-        var localX = evt.localPosition.x;
+        var localPos = (Vector2)evt.localPosition;
         var w = rect.width;
         var handleX = w * handlePos;
-        var handleRect = new Rect(handleX - 6, 0, 12, rect.height);
+        var handleRect = new Rect(handleX - HandleGrabHalfWidth, 0, HandleGrabHalfWidth * 2f, rect.height);
 
-        if (handleRect.Contains(new Vector2(localX, evt.localPosition.y)))
+        if (handleRect.Contains(localPos))
         {
             dragging = true;
             evt.StopImmediatePropagation();
         }
-        else if (rect.Contains(evt.localPosition))
+        else if (rect.Contains(localPos))
         {
-            handlePos = Mathf.Clamp01(localX / w);
-            previewContainer.MarkDirtyRepaint();
+            // Anywhere off the handle starts a pan of the preview image.
+            panning = true;
+            lastPanPosition = localPos;
             evt.StopImmediatePropagation();
         }
     }
 
     private void OnPointerMovePreview(PointerMoveEvent evt)
     {
-        if (currentAssetType != AssetType.Texture || !dragging)
+        if (currentAssetType != AssetType.Texture)
         {
             return;
         }
 
-        var rect = previewContainer.contentRect;
-        var localX = evt.localPosition.x;
-        var w = rect.width;
-        handlePos = Mathf.Clamp01(localX / w);
-        previewContainer.MarkDirtyRepaint();
-        evt.StopImmediatePropagation();
+        var localPos = (Vector2)evt.localPosition;
+
+        if (dragging)
+        {
+            var w = previewContainer.contentRect.width;
+            handlePos = Mathf.Clamp01(localPos.x / w);
+            previewContainer.MarkDirtyRepaint();
+            evt.StopImmediatePropagation();
+        }
+        else if (panning)
+        {
+            panOffset += localPos - lastPanPosition;
+            lastPanPosition = localPos;
+            previewContainer.MarkDirtyRepaint();
+            evt.StopImmediatePropagation();
+        }
     }
 
     private void OnPointerUpPreview(PointerUpEvent evt)
     {
         dragging = false;
+        panning = false;
     }
 
     private void OnPreviewScrollWheel(WheelEvent evt)
