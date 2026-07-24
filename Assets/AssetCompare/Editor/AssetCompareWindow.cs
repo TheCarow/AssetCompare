@@ -61,6 +61,8 @@ public class AssetCompareWindow : EditorWindow
     private Label sourceStatBox;
     private Label statBoxA;
     private Label statBoxB;
+    private Button applyToSourceButtonA;
+    private Button applyToSourceButtonB;
     
     private const int WaveformWidth = 512;
     private const int WaveformHeight = 256;
@@ -304,7 +306,7 @@ public class AssetCompareWindow : EditorWindow
         StyleLength importerOverviewMargin = 4;
         StyleLength importerOverviewWidth = 130;
 
-        (VisualElement column, Label statBox) BuildOverviewColumn(string headerText, StyleLength paddingLeft)
+        (VisualElement column, Label statBox, Button applyButton) BuildOverviewColumn(string headerText, StyleLength paddingLeft, Action onApply)
         {
             var column = new VisualElement
             {
@@ -343,14 +345,30 @@ public class AssetCompareWindow : EditorWindow
             };
             column.Add(statBox);
 
-            return (column, statBox);
+            var applyButton = new Button(onApply)
+            {
+                text = "Apply to Source",
+                style =
+                {
+                    width = importerOverviewWidth,
+                    marginTop = 4,
+                    marginRight = importerOverviewMargin,
+                    marginLeft = importerOverviewMargin,
+                    display = DisplayStyle.None,
+                }
+            };
+            column.Add(applyButton);
+
+            return (column, statBox, applyButton);
         }
 
-        var (importerAOverview, statBoxAColumn) = BuildOverviewColumn("Asset A", 0);
+        var (importerAOverview, statBoxAColumn, applyButtonAColumn) = BuildOverviewColumn("Asset A", 0, () => ApplyToSource(importerEditorA));
         statBoxA = statBoxAColumn;
+        applyToSourceButtonA = applyButtonAColumn;
 
-        var (importerBOverview, statBoxBColumn) = BuildOverviewColumn("Asset B", importerContainerPadding);
+        var (importerBOverview, statBoxBColumn, applyButtonBColumn) = BuildOverviewColumn("Asset B", importerContainerPadding, () => ApplyToSource(importerEditorB));
         statBoxB = statBoxBColumn;
+        applyToSourceButtonB = applyButtonBColumn;
 
         headersRow.Add(importerAOverview);
         headersRow.Add(importerBOverview);
@@ -451,7 +469,59 @@ public class AssetCompareWindow : EditorWindow
             }
         }
     }
-    
+
+    private void ApplyToSource(Editor importerEditor)
+    {
+        if (importerEditor == null || !(importerEditor.target is AssetImporter experimentalImporter))
+        {
+            return;
+        }
+
+        if (sourceAsset == null)
+        {
+            return;
+        }
+
+        var srcPath = AssetDatabase.GetAssetPath(sourceAsset);
+        if (string.IsNullOrEmpty(srcPath))
+        {
+            return;
+        }
+
+        var sourceImporter = AssetImporter.GetAtPath(srcPath);
+        if (sourceImporter == null)
+        {
+            return;
+        }
+
+        var sample = importerEditor == importerEditorA ? "A" : "B";
+        var confirmed = EditorUtility.DisplayDialog(
+            "Apply to Source",
+            $"Overwrite the import settings of \"{Path.GetFileName(srcPath)}\" with the settings from sample {sample}?",
+            "Apply",
+            "Cancel");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        // Copy every inspector-visible import setting from the experimental sample onto the source.
+        var sourceSerialized = new SerializedObject(sourceImporter);
+        var experimentalSerialized = new SerializedObject(experimentalImporter);
+
+        var iterator = experimentalSerialized.GetIterator();
+        while (iterator.NextVisible(true))
+        {
+            sourceSerialized.CopyFromSerializedProperty(iterator);
+        }
+
+        sourceSerialized.ApplyModifiedPropertiesWithoutUndo();
+        sourceImporter.SaveAndReimport();
+
+        UpdateSourceStats();
+    }
+
     private void RegisterTexturePreviewEvents()
     {
         if (previewContainer == null)
@@ -497,7 +567,8 @@ public class AssetCompareWindow : EditorWindow
             sourceStatBox.style.display = DisplayStyle.None;
             statBoxA.style.display = DisplayStyle.None;
             statBoxB.style.display = DisplayStyle.None;
-            
+            SetApplyButtonsVisible(false);
+
             return;
         }
 
@@ -536,9 +607,27 @@ public class AssetCompareWindow : EditorWindow
             statBoxA.style.display = DisplayStyle.None;
             statBoxB.style.display = DisplayStyle.None;
         }
-        
+
+        var supported = currentAssetType == AssetType.Texture || currentAssetType == AssetType.Audio;
+        SetApplyButtonsVisible(supported);
+
         UpdateSourceStats();
         GeneratePreview();
+    }
+
+    private void SetApplyButtonsVisible(bool visible)
+    {
+        var display = visible ? DisplayStyle.Flex : DisplayStyle.None;
+
+        if (applyToSourceButtonA != null)
+        {
+            applyToSourceButtonA.style.display = display;
+        }
+
+        if (applyToSourceButtonB != null)
+        {
+            applyToSourceButtonB.style.display = display;
+        }
     }
 
     private void GeneratePreview()
