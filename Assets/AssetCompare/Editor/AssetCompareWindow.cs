@@ -53,6 +53,7 @@ public class AssetCompareWindow : EditorWindow
     
     private ObjectField sourceField;
     private IMGUIContainer previewContainer;
+    private VisualElement swipeToggleBar;
     private VisualElement audioControlsContainer;
     private Button playStopButton;
     private Button swapAudioButton;
@@ -63,6 +64,8 @@ public class AssetCompareWindow : EditorWindow
     private Label statBoxB;
     private Button applyToSourceButtonA;
     private Button applyToSourceButtonB;
+    private Button revertChangesButtonA;
+    private Button revertChangesButtonB;
     
     private const int WaveformWidth = 512;
     private const int WaveformHeight = 256;
@@ -306,7 +309,7 @@ public class AssetCompareWindow : EditorWindow
         StyleLength importerOverviewMargin = 4;
         StyleLength importerOverviewWidth = 130;
 
-        (VisualElement column, Label statBox, Button applyButton) BuildOverviewColumn(string headerText, StyleLength paddingLeft, Action onApply)
+        (VisualElement column, Label statBox, Button applyButton, Button revertButton) BuildOverviewColumn(string headerText, StyleLength paddingLeft, Action onApply, Action onRevert)
         {
             var column = new VisualElement
             {
@@ -359,16 +362,34 @@ public class AssetCompareWindow : EditorWindow
             };
             column.Add(applyButton);
 
-            return (column, statBox, applyButton);
+            var revertButton = new Button(onRevert)
+            {
+                text = "Revert Changes",
+                style =
+                {
+                    width = importerOverviewWidth,
+                    marginTop = 2,
+                    marginRight = importerOverviewMargin,
+                    marginLeft = importerOverviewMargin,
+                    display = DisplayStyle.None,
+                }
+            };
+            column.Add(revertButton);
+
+            return (column, statBox, applyButton, revertButton);
         }
 
-        var (importerAOverview, statBoxAColumn, applyButtonAColumn) = BuildOverviewColumn("Asset A", 0, () => ApplyToSource(importerEditorA));
+        var (importerAOverview, statBoxAColumn, applyButtonAColumn, revertButtonAColumn) =
+            BuildOverviewColumn("Asset A", 0, () => ApplyToSource(importerEditorA), () => RevertChanges(importerEditorA, previewA, statBoxA));
         statBoxA = statBoxAColumn;
         applyToSourceButtonA = applyButtonAColumn;
+        revertChangesButtonA = revertButtonAColumn;
 
-        var (importerBOverview, statBoxBColumn, applyButtonBColumn) = BuildOverviewColumn("Asset B", importerContainerPadding, () => ApplyToSource(importerEditorB));
+        var (importerBOverview, statBoxBColumn, applyButtonBColumn, revertButtonBColumn) =
+            BuildOverviewColumn("Asset B", importerContainerPadding, () => ApplyToSource(importerEditorB), () => RevertChanges(importerEditorB, previewB, statBoxB));
         statBoxB = statBoxBColumn;
         applyToSourceButtonB = applyButtonBColumn;
+        revertChangesButtonB = revertButtonBColumn;
 
         headersRow.Add(importerAOverview);
         headersRow.Add(importerBOverview);
@@ -430,9 +451,44 @@ public class AssetCompareWindow : EditorWindow
         };
 
         previewPanel.Add(previewContainer);
+
+        swipeToggleBar = new VisualElement
+        {
+            pickingMode = PickingMode.Ignore,
+            style =
+            {
+                position = Position.Absolute,
+                left = 0,
+                right = 0,
+                bottom = 8,
+                flexDirection = FlexDirection.Row,
+                justifyContent = Justify.Center,
+                display = DisplayStyle.None
+            }
+        };
+
+        var swipeToggleButton = new Button(ToggleSwipe)
+        {
+            text = "Swipe A/B",
+            style = { minWidth = 120 }
+        };
+        swipeToggleBar.Add(swipeToggleButton);
+        previewPanel.Add(swipeToggleBar);
+
         mainRow.Add(previewPanel);
 
         rootVisualElement.Add(mainRow);
+    }
+
+    private void ToggleSwipe()
+    {
+        if (currentAssetType != AssetType.Texture)
+        {
+            return;
+        }
+
+        handlePos = handlePos >= 0.5f ? 0f : 1f;
+        previewContainer?.MarkDirtyRepaint();
     }
 
     private void DrawImporterA() => DrawImporter(importerEditorA, previewA, statBoxA);
@@ -467,6 +523,8 @@ public class AssetCompareWindow : EditorWindow
             {
                 UpdateAudioStats(importerEditor, statBox);
             }
+
+            RefreshRevertButtonStates();
         }
     }
 
@@ -506,20 +564,142 @@ public class AssetCompareWindow : EditorWindow
             return;
         }
 
-        // Copy every inspector-visible import setting from the experimental sample onto the source.
-        var sourceSerialized = new SerializedObject(sourceImporter);
-        var experimentalSerialized = new SerializedObject(experimentalImporter);
-
-        var iterator = experimentalSerialized.GetIterator();
-        while (iterator.NextVisible(true))
-        {
-            sourceSerialized.CopyFromSerializedProperty(iterator);
-        }
-
-        sourceSerialized.ApplyModifiedPropertiesWithoutUndo();
-        sourceImporter.SaveAndReimport();
+        CopyImporterSettings(experimentalImporter, sourceImporter);
 
         UpdateSourceStats();
+
+        RefreshRevertButtonStates();
+    }
+
+    private void RevertChanges(Editor importerEditor, Texture2D previewTexture, Label statBox)
+    {
+        if (importerEditor == null || !(importerEditor.target is AssetImporter experimentalImporter))
+        {
+            return;
+        }
+
+        if (sourceAsset == null)
+        {
+            return;
+        }
+
+        var srcPath = AssetDatabase.GetAssetPath(sourceAsset);
+        if (string.IsNullOrEmpty(srcPath))
+        {
+            return;
+        }
+
+        var sourceImporter = AssetImporter.GetAtPath(srcPath);
+        if (sourceImporter == null)
+        {
+            return;
+        }
+
+        // Reset the sample's import settings back to the source's.
+        CopyImporterSettings(sourceImporter, experimentalImporter);
+
+        RefreshPreviews();
+
+        if (currentAssetType == AssetType.Texture)
+        {
+            UpdateTextureStats(previewTexture, statBox);
+        }
+        else
+        {
+            UpdateAudioStats(importerEditor, statBox);
+        }
+
+        RefreshRevertButtonStates();
+        previewContainer?.MarkDirtyRepaint();
+    }
+
+    private void RefreshRevertButtonStates()
+    {
+        if (revertChangesButtonA != null)
+        {
+            revertChangesButtonA.SetEnabled(SampleDiffersFromSource(importerEditorA));
+        }
+
+        if (revertChangesButtonB != null)
+        {
+            revertChangesButtonB.SetEnabled(SampleDiffersFromSource(importerEditorB));
+        }
+    }
+
+    private bool SampleDiffersFromSource(Editor importerEditor)
+    {
+        if (importerEditor == null || !(importerEditor.target is AssetImporter sampleImporter))
+        {
+            return false;
+        }
+
+        if (sourceAsset == null)
+        {
+            return false;
+        }
+
+        var srcPath = AssetDatabase.GetAssetPath(sourceAsset);
+        if (string.IsNullOrEmpty(srcPath))
+        {
+            return false;
+        }
+
+        var sourceImporter = AssetImporter.GetAtPath(srcPath);
+        if (sourceImporter == null)
+        {
+            return false;
+        }
+
+        return !ImporterSettingsMatch(sampleImporter, sourceImporter);
+    }
+
+    // Compares every inspector-visible import setting of two importers.
+    private static bool ImporterSettingsMatch(AssetImporter a, AssetImporter b)
+    {
+        if (a == null || b == null)
+        {
+            return false;
+        }
+
+        var iteratorA = new SerializedObject(a).GetIterator();
+        var iteratorB = new SerializedObject(b).GetIterator();
+
+        while (true)
+        {
+            var hasA = iteratorA.NextVisible(true);
+            var hasB = iteratorB.NextVisible(true);
+
+            if (hasA != hasB)
+            {
+                return false;
+            }
+
+            if (!hasA)
+            {
+                return true;
+            }
+
+            if (!SerializedProperty.DataEquals(iteratorA, iteratorB))
+            {
+                return false;
+            }
+        }
+    }
+
+    // Copies every inspector-visible import setting from one importer onto another and reimports.
+    private static void CopyImporterSettings(AssetImporter from, AssetImporter to)
+    {
+        var toSerialized = new SerializedObject(to);
+        var fromSerialized = new SerializedObject(from);
+
+        var iterator = fromSerialized.GetIterator();
+        while (iterator.NextVisible(true))
+        {
+            toSerialized.CopyFromSerializedProperty(iterator);
+        }
+
+        toSerialized.ApplyModifiedPropertiesWithoutUndo();
+        to.SaveAndReimport();
     }
 
     private void RegisterTexturePreviewEvents()
@@ -567,7 +747,8 @@ public class AssetCompareWindow : EditorWindow
             sourceStatBox.style.display = DisplayStyle.None;
             statBoxA.style.display = DisplayStyle.None;
             statBoxB.style.display = DisplayStyle.None;
-            SetApplyButtonsVisible(false);
+            SetActionButtonsVisible(false);
+            SetSwipeToggleVisible(false);
 
             return;
         }
@@ -609,13 +790,22 @@ public class AssetCompareWindow : EditorWindow
         }
 
         var supported = currentAssetType == AssetType.Texture || currentAssetType == AssetType.Audio;
-        SetApplyButtonsVisible(supported);
+        SetActionButtonsVisible(supported);
+        SetSwipeToggleVisible(currentAssetType == AssetType.Texture);
 
         UpdateSourceStats();
         GeneratePreview();
     }
 
-    private void SetApplyButtonsVisible(bool visible)
+    private void SetSwipeToggleVisible(bool visible)
+    {
+        if (swipeToggleBar != null)
+        {
+            swipeToggleBar.style.display = visible ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+    }
+
+    private void SetActionButtonsVisible(bool visible)
     {
         var display = visible ? DisplayStyle.Flex : DisplayStyle.None;
 
@@ -627,6 +817,16 @@ public class AssetCompareWindow : EditorWindow
         if (applyToSourceButtonB != null)
         {
             applyToSourceButtonB.style.display = display;
+        }
+
+        if (revertChangesButtonA != null)
+        {
+            revertChangesButtonA.style.display = display;
+        }
+
+        if (revertChangesButtonB != null)
+        {
+            revertChangesButtonB.style.display = display;
         }
     }
 
@@ -714,6 +914,7 @@ public class AssetCompareWindow : EditorWindow
         importerEditorB = CreateImporterEditor(previewB);
         UpdateTextureStats(previewB, statBoxB);
 
+        RefreshRevertButtonStates();
         previewContainer?.MarkDirtyRepaint();
     }
 
@@ -739,6 +940,7 @@ public class AssetCompareWindow : EditorWindow
             waveformB = GenerateWaveform(previewAudioB, WaveformWidth, WaveformHeight);
         }
 
+        RefreshRevertButtonStates();
         previewContainer?.MarkDirtyRepaint();
     }
 
